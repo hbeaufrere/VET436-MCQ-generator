@@ -3,6 +3,12 @@ let currentIndex = 0;
 let userAnswers = {};
 let revealed = {};
 
+function escapeHTML(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // ----- Setup & Generation -----
 
 const setupForm = document.getElementById("quizSetupForm");
@@ -73,7 +79,7 @@ function renderQuestion() {
     for (const [letter, text] of Object.entries(q.options)) {
         const btn = document.createElement("button");
         btn.className = "option-btn";
-        btn.innerHTML = `<span class="option-letter">${letter}</span><span class="option-text">${text}</span>`;
+        btn.innerHTML = `<span class="option-letter">${escapeHTML(letter)}</span><span class="option-text">${escapeHTML(text)}</span>`;
 
         if (isRevealed) {
             btn.classList.add("disabled");
@@ -157,16 +163,16 @@ function showResults() {
         const div = document.createElement("div");
         div.className = `review-item ${isCorrect ? "review-correct" : "review-incorrect"}`;
 
-        let html = `<div class="review-question">${i + 1}. ${q.question}</div>`;
+        let html = `<div class="review-question">${i + 1}. ${escapeHTML(q.question)}</div>`;
 
         if (!isCorrect && userAnswers[i]) {
-            html += `<div class="review-answer your-answer">Your answer: ${userAnswers[i]}. ${q.options[userAnswers[i]]}</div>`;
+            html += `<div class="review-answer your-answer">Your answer: ${escapeHTML(userAnswers[i])}. ${escapeHTML(q.options[userAnswers[i]])}</div>`;
         } else if (!userAnswers[i]) {
             html += `<div class="review-answer your-answer">Not answered</div>`;
         }
 
-        html += `<div class="review-answer correct-answer">Correct answer: ${q.correct_answer}. ${q.options[q.correct_answer]}</div>`;
-        html += `<div class="review-explanation">${q.explanation}</div>`;
+        html += `<div class="review-answer correct-answer">Correct answer: ${escapeHTML(q.correct_answer)}. ${escapeHTML(q.options[q.correct_answer])}</div>`;
+        html += `<div class="review-explanation">${escapeHTML(q.explanation)}</div>`;
 
         div.innerHTML = html;
         reviewSection.appendChild(div);
