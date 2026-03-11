@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VET436 MCQ Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">VET436 MCQ Generator</div>
+        <div class="nav-links">
+            <a href="{{ url_for('index') }}" class="active">Documents</a>
+            <a href="{{ url_for('quiz') }}">Practice Quiz</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <section class="card">
+            <h2>Upload Course Materials</h2>
+            <p>Upload your lecture PDFs, PowerPoint slides, or text files. The AI will use these to generate practice MCQs.</p>
+
+            <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data" class="upload-form">
+                <div class="file-drop-zone" id="dropZone">
+                    <div class="drop-icon">+</div>
+                    <p>Drag &amp; drop files here or click to browse</p>
+                    <p class="text-muted">Supported: PDF, PPTX, TXT (max 50 MB)</p>
+                    <input type="file" name="files" id="fileInput" multiple accept=".pdf,.pptx,.ppt,.txt" hidden>
+                </div>
+                <div id="fileList" class="file-list"></div>
+                <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>Upload Files</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Uploaded Documents</h2>
+            {% if documents %}
+            <div class="doc-list">
+                {% for doc in documents %}
+                <div class="doc-item">
+                    <div class="doc-info">
+                        <span class="doc-icon">&#128196;</span>
+                        <div>
+                            <strong>{{ doc.filename }}</strong>
+                            <small class="text-muted">Uploaded {{ doc.uploaded_at }}</small>
+                        </div>
+                    </div>
+                    <form action="{{ url_for('delete_document', doc_id=doc.id) }}" method="POST" class="inline-form">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Remove this document?')">Remove</button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            <a href="{{ url_for('quiz') }}" class="btn btn-primary" style="margin-top:1rem;">Start Practicing</a>
+            {% else %}
+            <p class="text-muted">No documents uploaded yet. Upload your course materials above to get started.</p>
+            {% endif %}
+        </section>
+    </main>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const uploadBtn = document.getElementById('uploadBtn');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            fileInput.files = e.dataTransfer.files;
+            updateFileList();
+        });
+
+        fileInput.addEventListener('change', updateFileList);
+
+        function updateFileList() {
+            fileList.innerHTML = '';
+            const files = fileInput.files;
+            uploadBtn.disabled = files.length === 0;
+            for (const file of files) {
+                const div = document.createElement('div');
+                div.className = 'file-list-item';
+                div.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`;
+                fileList.appendChild(div);
+            }
+        }
+    </script>
+</body>
+</html>
