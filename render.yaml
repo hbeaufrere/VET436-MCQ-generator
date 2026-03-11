@@ -6,7 +6,7 @@ services:
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
       - key: ANTHROPIC_API_KEY
-        sync: false
+        value: SET_IN_DASHBOARD
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
