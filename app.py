@@ -257,7 +257,7 @@ def api_generate():
     """Generate MCQs from all loaded course materials."""
     data = request.get_json()
     num_questions = min(int(data.get("num_questions", 10)), 30)
-    topic_focus = data.get("topic_focus", "").strip() or None
+    topic_focus = (data.get("topic_focus") or "").strip() or None
 
     db = get_db()
     rows = db.execute("SELECT text_content, filename FROM documents").fetchall()
