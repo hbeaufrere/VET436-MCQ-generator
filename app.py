@@ -4,10 +4,7 @@ import sqlite3
 import hashlib
 from pathlib import Path
 
-from flask import (
-    Flask, render_template, request, jsonify, redirect, url_for, flash, g
-)
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, jsonify, g
 from dotenv import load_dotenv
 import anthropic
 import pdfplumber
@@ -18,10 +15,8 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-me")
 
-UPLOAD_FOLDER = Path(__file__).parent / "uploads"
-UPLOAD_FOLDER.mkdir(exist_ok=True)
-app.config["UPLOAD_FOLDER"] = str(UPLOAD_FOLDER)
-app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+COURSE_MATERIALS = Path(__file__).parent / "course_materials"
+COURSE_MATERIALS.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {"pdf", "pptx", "ppt", "txt"}
 
@@ -57,12 +52,10 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS quiz_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            document_id INTEGER,
             questions_json TEXT NOT NULL,
             score INTEGER,
             total INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (document_id) REFERENCES documents(id)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     db.close()
@@ -73,10 +66,6 @@ init_db()
 # ---------------------------------------------------------------------------
 # Document parsing
 # ---------------------------------------------------------------------------
-
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 def extract_text_pdf(filepath):
     text_parts = []
@@ -127,6 +116,51 @@ def file_hash(filepath):
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()
+
+# ---------------------------------------------------------------------------
+# Auto-seed: import all files from course_materials/ on startup
+# ---------------------------------------------------------------------------
+
+def seed_course_materials():
+    """Scan course_materials/ and import any new files into the database."""
+    db = sqlite3.connect(str(DATABASE))
+    db.row_factory = sqlite3.Row
+    count = 0
+
+    for filepath in sorted(COURSE_MATERIALS.iterdir()):
+        if filepath.is_file() and filepath.suffix.lower().lstrip(".") in ALLOWED_EXTENSIONS:
+            try:
+                fhash = file_hash(str(filepath))
+                # Skip if already imported
+                existing = db.execute(
+                    "SELECT id FROM documents WHERE file_hash = ?", (fhash,)
+                ).fetchone()
+                if existing:
+                    continue
+
+                text = extract_text(str(filepath))
+                if not text.strip():
+                    print(f"  Skipped {filepath.name} (no text extracted)")
+                    continue
+
+                db.execute(
+                    "INSERT INTO documents (filename, file_hash, text_content) VALUES (?, ?, ?)",
+                    (filepath.name, fhash, text),
+                )
+                db.commit()
+                count += 1
+                print(f"  Imported: {filepath.name}")
+            except Exception as e:
+                print(f"  Error importing {filepath.name}: {e}")
+
+    db.close()
+    if count:
+        print(f"Seeded {count} new document(s) from course_materials/")
+    else:
+        print("No new documents to import from course_materials/")
+
+
+seed_course_materials()
 
 # ---------------------------------------------------------------------------
 # Claude API – MCQ generation
@@ -188,7 +222,6 @@ Return ONLY the JSON array, no other text.
     # Extract JSON from response (handle markdown code blocks)
     if response_text.startswith("```"):
         lines = response_text.split("\n")
-        # Remove first and last lines (code block markers)
         lines = [l for l in lines if not l.strip().startswith("```")]
         response_text = "\n".join(lines)
 
@@ -201,99 +234,24 @@ Return ONLY the JSON array, no other text.
 @app.route("/")
 def index():
     db = get_db()
-    documents = db.execute(
-        "SELECT id, filename, uploaded_at FROM documents ORDER BY uploaded_at DESC"
-    ).fetchall()
-    return render_template("index.html", documents=documents)
-
-
-@app.route("/upload", methods=["POST"])
-def upload():
-    if "files" not in request.files:
-        flash("No files selected.", "error")
-        return redirect(url_for("index"))
-
-    files = request.files.getlist("files")
-    uploaded_count = 0
-
-    for file in files:
-        if file and file.filename and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            file.save(filepath)
-
-            try:
-                fhash = file_hash(filepath)
-                text = extract_text(filepath)
-
-                if not text.strip():
-                    flash(f"{filename}: Could not extract text.", "error")
-                    os.remove(filepath)
-                    continue
-
-                db = get_db()
-                try:
-                    db.execute(
-                        "INSERT INTO documents (filename, file_hash, text_content) VALUES (?, ?, ?)",
-                        (filename, fhash, text),
-                    )
-                    db.commit()
-                    uploaded_count += 1
-                except sqlite3.IntegrityError:
-                    flash(f"{filename}: Already uploaded.", "warning")
-            except Exception as e:
-                flash(f"{filename}: Error processing — {e}", "error")
-            finally:
-                # Remove the file after extracting text (we only need the text)
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-
-    if uploaded_count:
-        flash(f"Successfully uploaded {uploaded_count} document(s).", "success")
-
-    return redirect(url_for("index"))
-
-
-@app.route("/delete/<int:doc_id>", methods=["POST"])
-def delete_document(doc_id):
-    db = get_db()
-    db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-    db.commit()
-    flash("Document removed.", "success")
-    return redirect(url_for("index"))
-
-
-@app.route("/quiz")
-def quiz():
-    db = get_db()
-    documents = db.execute(
-        "SELECT id, filename FROM documents ORDER BY uploaded_at DESC"
-    ).fetchall()
-    return render_template("quiz.html", documents=documents)
+    doc_count = db.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()["cnt"]
+    return render_template("index.html", doc_count=doc_count)
 
 
 @app.route("/api/generate", methods=["POST"])
 def api_generate():
-    """API endpoint to generate MCQs."""
+    """Generate MCQs from all loaded course materials."""
     data = request.get_json()
-    doc_ids = data.get("document_ids", [])
     num_questions = min(int(data.get("num_questions", 10)), 30)
     topic_focus = data.get("topic_focus", "").strip() or None
 
-    if not doc_ids:
-        return jsonify({"error": "Please select at least one document."}), 400
-
     db = get_db()
-    placeholders = ",".join("?" for _ in doc_ids)
-    rows = db.execute(
-        f"SELECT text_content, filename FROM documents WHERE id IN ({placeholders})",
-        doc_ids,
-    ).fetchall()
+    rows = db.execute("SELECT text_content, filename FROM documents").fetchall()
 
     if not rows:
-        return jsonify({"error": "Documents not found."}), 404
+        return jsonify({"error": "No course materials loaded. Place files in course_materials/ and restart."}), 400
 
-    # Combine text from selected documents
+    # Combine text from all documents
     combined_text = "\n\n".join(
         f"--- {row['filename']} ---\n{row['text_content']}" for row in rows
     )
@@ -306,23 +264,13 @@ def api_generate():
         return jsonify({"error": f"AI service error: {e.message}"}), 502
 
     # Save quiz session
-    doc_id = doc_ids[0] if len(doc_ids) == 1 else None
     db.execute(
-        "INSERT INTO quiz_sessions (document_id, questions_json, total) VALUES (?, ?, ?)",
-        (doc_id, json.dumps(questions), len(questions)),
+        "INSERT INTO quiz_sessions (questions_json, total) VALUES (?, ?)",
+        (json.dumps(questions), len(questions)),
     )
     db.commit()
 
     return jsonify({"questions": questions})
-
-
-@app.route("/api/documents")
-def api_documents():
-    db = get_db()
-    docs = db.execute(
-        "SELECT id, filename, uploaded_at FROM documents ORDER BY uploaded_at DESC"
-    ).fetchall()
-    return jsonify([dict(d) for d in docs])
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +280,6 @@ def api_documents():
 @app.after_request
 def allow_iframe_embedding(response):
     """Allow the app to be embedded in Canvas iframes."""
-    response.headers["X-Frame-Options"] = "ALLOWALL"
     response.headers.pop("X-Frame-Options", None)
     response.headers["Content-Security-Policy"] = "frame-ancestors *"
     return response

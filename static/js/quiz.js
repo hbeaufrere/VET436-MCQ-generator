@@ -1,7 +1,7 @@
 let questions = [];
 let currentIndex = 0;
-let userAnswers = {};   // { questionIndex: "A" | "B" | ... }
-let revealed = {};      // { questionIndex: true } — tracks which questions have been answered
+let userAnswers = {};
+let revealed = {};
 
 // ----- Setup & Generation -----
 
@@ -10,13 +10,6 @@ if (setupForm) {
     setupForm.addEventListener("submit", async (e) => {
         e.preventDefault();
 
-        const checked = [...document.querySelectorAll('input[name="document_ids"]:checked')];
-        if (checked.length === 0) {
-            alert("Please select at least one document.");
-            return;
-        }
-
-        const docIds = checked.map(cb => parseInt(cb.value));
         const numQuestions = parseInt(document.getElementById("numQuestions").value);
         const topicFocus = document.getElementById("topicFocus").value.trim();
 
@@ -28,7 +21,6 @@ if (setupForm) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    document_ids: docIds,
                     num_questions: numQuestions,
                     topic_focus: topicFocus || null,
                 }),
@@ -192,7 +184,4 @@ function resetQuiz() {
     document.getElementById("resultsPanel").style.display = "none";
     document.getElementById("quizPanel").style.display = "none";
     document.getElementById("setupPanel").style.display = "block";
-
-    // Uncheck all document checkboxes
-    document.querySelectorAll('input[name="document_ids"]').forEach(cb => cb.checked = false);
 }
