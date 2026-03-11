@@ -16,7 +16,7 @@
         <section class="card" id="setupPanel">
             <h2>Generate Practice Questions</h2>
             <p>Questions are generated from your course lecture materials using AI.
-               {% if doc_count %}{{ doc_count }} document(s) loaded.{% else %}No documents loaded — add files to <code>course_materials/</code> and restart the server.{% endif %}</p>
+               {% if not doc_count %}No documents loaded — add files to <code>course_materials/</code> and restart the server.{% endif %}</p>
 
             {% if doc_count %}
             <form id="quizSetupForm">
