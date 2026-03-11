@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import sqlite3
 import hashlib
 from pathlib import Path
@@ -166,6 +167,15 @@ seed_course_materials()
 # Claude API – MCQ generation
 # ---------------------------------------------------------------------------
 
+def sanitize_text(text):
+    """Remove control characters and null bytes that break the API."""
+    # Remove null bytes and other control chars (keep newlines, tabs, carriage returns)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    # Replace surrogate pairs / invalid unicode
+    text = text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    return text
+
+
 def generate_mcqs(text_content, num_questions=10, topic_focus=None):
     """Call Claude to generate MCQs from document text."""
     client = anthropic.Anthropic()
@@ -173,6 +183,9 @@ def generate_mcqs(text_content, num_questions=10, topic_focus=None):
     focus_instruction = ""
     if topic_focus:
         focus_instruction = f"\nFocus the questions specifically on: {topic_focus}"
+
+    # Sanitize text to remove control characters from PDF extraction
+    text_content = sanitize_text(text_content)
 
     # Truncate very long documents to fit context
     max_chars = 80_000
@@ -219,11 +232,12 @@ Return ONLY the JSON array, no other text.
 
     response_text = message.content[0].text.strip()
 
-    # Extract JSON from response (handle markdown code blocks)
-    if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        response_text = "\n".join(lines)
+    # Extract JSON from response – handle markdown code blocks and preamble
+    # Find the first '[' and last ']' to extract the JSON array
+    start = response_text.find("[")
+    end = response_text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        response_text = response_text[start:end + 1]
 
     return json.loads(response_text)
 
@@ -258,10 +272,14 @@ def api_generate():
 
     try:
         questions = generate_mcqs(combined_text, num_questions, topic_focus)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
         return jsonify({"error": "Failed to parse generated questions. Please try again."}), 500
     except anthropic.APIError as e:
         return jsonify({"error": f"AI service error: {e.message}"}), 502
+    except Exception as e:
+        print(f"Unexpected error: {type(e).__name__}: {e}")
+        return jsonify({"error": str(e)}), 500
 
     # Save quiz session
     db.execute(
