@@ -179,9 +179,9 @@ def generate_mcqs(text_content, num_questions=10, topic_focus=None):
     if len(text_content) > max_chars:
         text_content = text_content[:max_chars] + "\n\n[Content truncated...]"
 
-    prompt = f"""You are an expert veterinary science educator creating exam-style multiple choice questions (MCQs) for veterinary students.
+    prompt = f"""You are an expert veterinary science educator specializing in small mammal medicine (rabbits, guinea pigs, ferrets, chinchillas, hedgehogs, and other exotic small mammals). You are creating exam-style multiple choice questions (MCQs) for veterinary students.
 
-Based on the following lecture/course material, generate exactly {num_questions} high-quality MCQs.{focus_instruction}
+Based on the following lecture/course material on small mammal medicine, generate exactly {num_questions} high-quality MCQs. All questions must be relevant to small mammal medicine.{focus_instruction}
 
 Requirements for each question:
 - Write a clear, specific question stem
