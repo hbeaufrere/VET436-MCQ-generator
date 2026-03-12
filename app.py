@@ -238,6 +238,11 @@ Return ONLY the JSON array, no other text.
 
     response_text = message.content[0].text.strip()
 
+    # Calculate cost (Haiku 4.5: $1/M input, $5/M output)
+    input_tokens = message.usage.input_tokens
+    output_tokens = message.usage.output_tokens
+    cost = (input_tokens / 1_000_000) * 1.0 + (output_tokens / 1_000_000) * 5.0
+
     # Extract JSON from response – handle markdown code blocks and preamble
     # Find the first '[' and last ']' to extract the JSON array
     start = response_text.find("[")
@@ -245,7 +250,7 @@ Return ONLY the JSON array, no other text.
     if start != -1 and end != -1 and end > start:
         response_text = response_text[start:end + 1]
 
-    return json.loads(response_text)
+    return json.loads(response_text), cost
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -262,7 +267,7 @@ def index():
 def api_generate():
     """Generate MCQs from all loaded course materials."""
     data = request.get_json()
-    num_questions = min(int(data.get("num_questions", 10)), 30)
+    num_questions = min(int(data.get("num_questions", 10)), 15)
     topic_focus = (data.get("topic_focus") or "").strip() or None
 
     db = get_db()
@@ -277,7 +282,7 @@ def api_generate():
     )
 
     try:
-        questions = generate_mcqs(combined_text, num_questions, topic_focus)
+        questions, cost = generate_mcqs(combined_text, num_questions, topic_focus)
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e}")
         return jsonify({"error": "Failed to parse generated questions. Please try again."}), 500
@@ -294,7 +299,7 @@ def api_generate():
     )
     db.commit()
 
-    return jsonify({"questions": questions})
+    return jsonify({"questions": questions, "cost": round(cost, 4)})
 
 
 # ---------------------------------------------------------------------------

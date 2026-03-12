@@ -209,6 +209,32 @@ select, input[type="text"] {
 
 .quiz-progress { color: var(--text-muted); font-weight: 600; }
 
+.quiz-info {
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.quiz-info em {
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.quiz-info .disclaimer {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: #92400e;
+    line-height: 1.5;
+}
+
+.quiz-info .disclaimer a {
+    color: #92400e;
+    font-weight: 600;
+}
+
 .progress-bar-container {
     background: var(--border);
     border-radius: 999px;

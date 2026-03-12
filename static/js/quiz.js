@@ -1,4 +1,5 @@
 let questions = [];
+let quizCost = 0;
 let currentIndex = 0;
 let userAnswers = {};
 let revealed = {};
@@ -39,6 +40,7 @@ if (setupForm) {
             }
 
             questions = data.questions;
+            quizCost = data.cost;
             currentIndex = 0;
             userAnswers = {};
             revealed = {};
@@ -57,6 +59,17 @@ function startQuiz() {
     document.getElementById("loadingPanel").style.display = "none";
     document.getElementById("quizPanel").style.display = "block";
     document.getElementById("totalQ").textContent = questions.length;
+
+    // Show cost and disclaimer
+    const infoDiv = document.getElementById("quizInfo");
+    if (infoDiv) {
+        const costStr = quizCost < 0.01 ? "less than $0.01" : "$" + quizCost.toFixed(2);
+        infoDiv.innerHTML =
+            `<em>FYI, cost of this MCQ session was ${costStr}</em>` +
+            `<p class="disclaimer">AI-generated questions may be inaccurate. If you are unsure about the validity of an answer or confused, just email Dr. Beaufr\u00e8re at <a href="mailto:hbeaufrere@ucdavis.edu">hbeaufrere@ucdavis.edu</a></p>`;
+        infoDiv.style.display = "block";
+    }
+
     renderQuestion();
 }
 
