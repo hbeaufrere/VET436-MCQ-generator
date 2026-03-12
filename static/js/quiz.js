@@ -60,12 +60,10 @@ function startQuiz() {
     document.getElementById("quizPanel").style.display = "block";
     document.getElementById("totalQ").textContent = questions.length;
 
-    // Show cost and disclaimer
+    // Show disclaimer
     const infoDiv = document.getElementById("quizInfo");
     if (infoDiv) {
-        const costStr = quizCost < 0.01 ? "less than $0.01" : "$" + quizCost.toFixed(2);
         infoDiv.innerHTML =
-            `<em>FYI, cost of this MCQ session was ${costStr}</em>` +
             `<p class="disclaimer">AI-generated questions may be inaccurate. If you are unsure about the validity of an answer or confused, just email Dr. Beaufr\u00e8re at <a href="mailto:hbeaufrere@ucdavis.edu">hbeaufrere@ucdavis.edu</a></p>`;
         infoDiv.style.display = "block";
     }
@@ -212,7 +210,7 @@ function downloadPDF() {
     // Title
     doc.setFontSize(18);
     doc.setFont("helvetica", "bold");
-    doc.text("VET436 MCQ Practice — Results", margin, y);
+    doc.text("VET436 MCQ Practice - Results", margin, y);
     y += 10;
 
     // Score
@@ -241,8 +239,8 @@ function downloadPDF() {
         for (const [letter, text] of Object.entries(q.options)) {
             checkPage(8);
             let prefix = "  ";
-            if (letter === q.correct_answer) prefix = "✓ ";
-            else if (letter === userAnswers[i] && userAnswers[i] !== q.correct_answer) prefix = "✗ ";
+            if (letter === q.correct_answer) prefix = "[correct] ";
+            else if (letter === userAnswers[i] && userAnswers[i] !== q.correct_answer) prefix = "[wrong] ";
             const optLines = doc.splitTextToSize(`${prefix}${letter}. ${text}`, maxWidth - 5);
             doc.text(optLines, margin + 3, y);
             y += optLines.length * 5;
