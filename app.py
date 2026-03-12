@@ -207,6 +207,7 @@ Requirements for each question:
 - Exactly one option must be correct
 - Include plausible distractors that test understanding, not just recall
 - After the correct answer, provide a brief explanation (2-3 sentences) of WHY the correct answer is right and why key distractors are wrong
+- Do NOT include questions about specific drug dosages, drug doses, or numerical blood/lab values (e.g., no "What is the normal blood glucose range..." or "What dose of meloxicam...")
 
 Return your response as a JSON array with this exact structure:
 [
