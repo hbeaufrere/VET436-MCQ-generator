@@ -196,6 +196,11 @@ def generate_mcqs(text_content, num_questions=10, topic_focus=None):
 
 Based on the following lecture/course material on small mammal medicine, generate exactly {num_questions} high-quality MCQs. All questions must be relevant to small mammal medicine.{focus_instruction}
 
+Question type distribution (approximate):
+- 25% Recall/knowledge questions: straightforward factual recall (e.g., anatomy, normal values, definitions)
+- 50% Clinical scenario questions: present a patient case or clinical situation and ask for the best diagnosis, treatment, or next step
+- 25% Comparative/species-differentiation questions: highlight differences between species (e.g., "Which species is the exception...", "How does X differ between ferrets and rabbits?")
+
 Requirements for each question:
 - Write a clear, specific question stem
 - Provide exactly 4 answer options labeled A, B, C, D
