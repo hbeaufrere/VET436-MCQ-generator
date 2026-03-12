@@ -98,11 +98,13 @@
             <div id="reviewSection" class="review-section"></div>
 
             <div class="results-actions">
+                <button class="btn btn-secondary" onclick="downloadPDF()">Download PDF</button>
                 <button class="btn btn-primary" onclick="resetQuiz()">Generate New Quiz</button>
             </div>
         </section>
     </main>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
     <script src="{{ url_for('static', filename='js/quiz.js') }}"></script>
 </body>
 </html>

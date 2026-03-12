@@ -194,6 +194,87 @@ function showResults() {
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
+function downloadPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    const maxWidth = pageWidth - margin * 2;
+    let y = 20;
+
+    function checkPage(needed) {
+        if (y + needed > doc.internal.pageSize.getHeight() - 15) {
+            doc.addPage();
+            y = 20;
+        }
+    }
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.text("VET436 MCQ Practice — Results", margin, y);
+    y += 10;
+
+    // Score
+    let correct = 0;
+    questions.forEach((q, i) => {
+        if (userAnswers[i] === q.correct_answer) correct++;
+    });
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Score: ${correct} / ${questions.length} (${Math.round((correct / questions.length) * 100)}%)`, margin, y);
+    y += 12;
+
+    // Questions
+    doc.setFontSize(11);
+    questions.forEach((q, i) => {
+        checkPage(50);
+
+        // Question number and text
+        doc.setFont("helvetica", "bold");
+        const qLines = doc.splitTextToSize(`${i + 1}. ${q.question}`, maxWidth);
+        doc.text(qLines, margin, y);
+        y += qLines.length * 5 + 2;
+
+        // Options
+        doc.setFont("helvetica", "normal");
+        for (const [letter, text] of Object.entries(q.options)) {
+            checkPage(8);
+            let prefix = "  ";
+            if (letter === q.correct_answer) prefix = "✓ ";
+            else if (letter === userAnswers[i] && userAnswers[i] !== q.correct_answer) prefix = "✗ ";
+            const optLines = doc.splitTextToSize(`${prefix}${letter}. ${text}`, maxWidth - 5);
+            doc.text(optLines, margin + 3, y);
+            y += optLines.length * 5;
+        }
+        y += 2;
+
+        // Your answer vs correct
+        checkPage(12);
+        const isCorrect = userAnswers[i] === q.correct_answer;
+        doc.setFont("helvetica", "bold");
+        if (!userAnswers[i]) {
+            doc.text("Not answered", margin + 3, y);
+        } else if (!isCorrect) {
+            doc.text(`Your answer: ${userAnswers[i]}. ${q.options[userAnswers[i]]}`, margin + 3, y);
+        }
+        if (!isCorrect) y += 6;
+        doc.text(`Correct answer: ${q.correct_answer}. ${q.options[q.correct_answer]}`, margin + 3, y);
+        y += 6;
+
+        // Explanation
+        checkPage(15);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(10);
+        const expLines = doc.splitTextToSize(`Explanation: ${q.explanation}`, maxWidth - 5);
+        doc.text(expLines, margin + 3, y);
+        y += expLines.length * 4.5 + 8;
+        doc.setFontSize(11);
+    });
+
+    doc.save("VET436_quiz_results.pdf");
+}
+
 function resetQuiz() {
     questions = [];
     currentIndex = 0;
