@@ -239,7 +239,7 @@ def sanitize_text(text):
 
 def generate_mcqs(text_content, num_questions=10, topic_focus=None):
     """Call Claude to generate MCQs from document text."""
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=240.0)
 
     focus_instruction = ""
     if topic_focus:
