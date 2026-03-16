@@ -4,9 +4,11 @@ import re
 import random
 import sqlite3
 import hashlib
+import threading
+import time
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, g
+from flask import Flask, render_template, request, jsonify, session, g
 from dotenv import load_dotenv
 import anthropic
 import pdfplumber
@@ -165,6 +167,64 @@ def seed_course_materials():
 seed_course_materials()
 
 # ---------------------------------------------------------------------------
+# Quiz cache – serves recently generated quizzes to avoid redundant API calls
+# ---------------------------------------------------------------------------
+
+CACHE_TTL = 30 * 60          # 30 minutes
+CACHE_POOL_SIZE = 5          # keep up to 5 quiz variations per parameter combo
+
+_quiz_cache = {}             # {cache_key: [(questions, cost, timestamp), ...]}
+_cache_lock = threading.Lock()
+
+
+def _cache_key(num_questions, topic_focus):
+    return (num_questions, topic_focus or "")
+
+
+def cache_get(num_questions, topic_focus, exclude_hashes=None):
+    """Return a random cached quiz that the student hasn't seen, or None."""
+    key = _cache_key(num_questions, topic_focus)
+    now = time.time()
+    exclude_hashes = exclude_hashes or set()
+
+    with _cache_lock:
+        entries = _quiz_cache.get(key, [])
+        # Purge expired
+        entries = [(q, c, t) for q, c, t in entries if now - t < CACHE_TTL]
+        _quiz_cache[key] = entries
+
+        # Filter out quizzes this student already saw
+        unseen = [(q, c, t) for q, c, t in entries
+                  if _quiz_hash(q) not in exclude_hashes]
+
+        if unseen:
+            q, c, _ = random.choice(unseen)
+            return q, c
+    return None
+
+
+def cache_put(num_questions, topic_focus, questions, cost):
+    """Add a quiz to the pool, evicting oldest if pool is full."""
+    key = _cache_key(num_questions, topic_focus)
+    now = time.time()
+
+    with _cache_lock:
+        entries = _quiz_cache.setdefault(key, [])
+        # Purge expired
+        entries[:] = [(q, c, t) for q, c, t in entries if now - t < CACHE_TTL]
+        # Evict oldest if at capacity
+        if len(entries) >= CACHE_POOL_SIZE:
+            entries.sort(key=lambda x: x[2])
+            entries.pop(0)
+        entries.append((questions, cost, now))
+
+
+def _quiz_hash(questions):
+    """Quick hash of a quiz for dedup purposes."""
+    return hashlib.md5(json.dumps(questions, sort_keys=True).encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Claude API – MCQ generation
 # ---------------------------------------------------------------------------
 
@@ -277,6 +337,25 @@ def api_generate():
     if not rows:
         return jsonify({"error": "No course materials loaded. Place files in course_materials/ and restart."}), 400
 
+    # Track which quizzes this student already saw (via session cookie)
+    seen = set(session.get("seen_quizzes", []))
+
+    # Try serving a cached quiz the student hasn't seen yet
+    cached = cache_get(num_questions, topic_focus, exclude_hashes=seen)
+    if cached:
+        questions, cost = cached
+        qh = _quiz_hash(questions)
+        seen.add(qh)
+        session["seen_quizzes"] = list(seen)[-20:]  # keep last 20
+
+        db.execute(
+            "INSERT INTO quiz_sessions (questions_json, total) VALUES (?, ?)",
+            (json.dumps(questions), len(questions)),
+        )
+        db.commit()
+        return jsonify({"questions": questions, "cost": round(cost, 4), "cached": True})
+
+    # No usable cache entry – generate a fresh quiz
     # Sample random chunks from each document so questions can come from
     # any part of the material.  Chunks are re-randomized every quiz.
     max_total = 80_000
@@ -309,6 +388,14 @@ def api_generate():
         print(f"Unexpected error: {type(e).__name__}: {e}")
         return jsonify({"error": str(e)}), 500
 
+    # Cache the new quiz for other students
+    cache_put(num_questions, topic_focus, questions, cost)
+
+    # Track that this student saw this quiz
+    qh = _quiz_hash(questions)
+    seen.add(qh)
+    session["seen_quizzes"] = list(seen)[-20:]
+
     # Save quiz session
     db.execute(
         "INSERT INTO quiz_sessions (questions_json, total) VALUES (?, ?)",
@@ -316,7 +403,7 @@ def api_generate():
     )
     db.commit()
 
-    return jsonify({"questions": questions, "cost": round(cost, 4)})
+    return jsonify({"questions": questions, "cost": round(cost, 4), "cached": False})
 
 
 # ---------------------------------------------------------------------------
