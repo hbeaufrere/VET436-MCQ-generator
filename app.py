@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import random
 import sqlite3
 import hashlib
 from pathlib import Path
@@ -276,14 +277,25 @@ def api_generate():
     if not rows:
         return jsonify({"error": "No course materials loaded. Place files in course_materials/ and restart."}), 400
 
-    # Combine text from all documents, truncating each to avoid OOM on large PDFs
-    max_per_doc = 80_000 // max(len(rows), 1)
+    # Sample random chunks from each document so questions can come from
+    # any part of the material.  Chunks are re-randomized every quiz.
+    max_total = 80_000
+    budget_per_doc = max_total // max(len(rows), 1)
+    chunk_size = 1500  # ~1-2 paragraphs per chunk
+
     parts = []
     for row in rows:
         doc_text = row['text_content']
-        if len(doc_text) > max_per_doc:
-            doc_text = doc_text[:max_per_doc] + "\n[...truncated...]"
-        parts.append(f"--- {row['filename']} ---\n{doc_text}")
+        if len(doc_text) <= budget_per_doc:
+            parts.append(f"--- {row['filename']} ---\n{doc_text}")
+        else:
+            # Split into fixed-size chunks, sample enough to fill budget
+            chunks = [doc_text[i:i + chunk_size]
+                      for i in range(0, len(doc_text), chunk_size)]
+            num_chunks = max(budget_per_doc // chunk_size, 1)
+            sampled = random.sample(chunks, min(num_chunks, len(chunks)))
+            sampled_text = "\n[...]\n".join(sampled)
+            parts.append(f"--- {row['filename']} (sampled excerpts) ---\n{sampled_text}")
     combined_text = "\n\n".join(parts)
 
     try:
