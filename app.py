@@ -231,17 +231,17 @@ Return ONLY the JSON array, no other text.
 """
 
     message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
 
     response_text = message.content[0].text.strip()
 
-    # Calculate cost (Haiku 4.5: $1/M input, $5/M output)
+    # Calculate cost (Sonnet 4.6: $3/M input, $15/M output)
     input_tokens = message.usage.input_tokens
     output_tokens = message.usage.output_tokens
-    cost = (input_tokens / 1_000_000) * 1.0 + (output_tokens / 1_000_000) * 5.0
+    cost = (input_tokens / 1_000_000) * 3.0 + (output_tokens / 1_000_000) * 15.0
 
     # Extract JSON from response – handle markdown code blocks and preamble
     # Find the first '[' and last ']' to extract the JSON array
@@ -276,10 +276,15 @@ def api_generate():
     if not rows:
         return jsonify({"error": "No course materials loaded. Place files in course_materials/ and restart."}), 400
 
-    # Combine text from all documents
-    combined_text = "\n\n".join(
-        f"--- {row['filename']} ---\n{row['text_content']}" for row in rows
-    )
+    # Combine text from all documents, truncating each to avoid OOM on large PDFs
+    max_per_doc = 80_000 // max(len(rows), 1)
+    parts = []
+    for row in rows:
+        doc_text = row['text_content']
+        if len(doc_text) > max_per_doc:
+            doc_text = doc_text[:max_per_doc] + "\n[...truncated...]"
+        parts.append(f"--- {row['filename']} ---\n{doc_text}")
+    combined_text = "\n\n".join(parts)
 
     try:
         questions, cost = generate_mcqs(combined_text, num_questions, topic_focus)
