@@ -6,6 +6,7 @@ import sqlite3
 import hashlib
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, session, g
@@ -225,6 +226,24 @@ def _quiz_hash(questions):
 
 
 # ---------------------------------------------------------------------------
+# Async task store – generation runs in background, frontend polls for result
+# ---------------------------------------------------------------------------
+
+_tasks = {}        # {task_id: {"status": ..., "result": ..., "error": ...}}
+_tasks_lock = threading.Lock()
+TASK_TTL = 10 * 60  # clean up completed tasks after 10 minutes
+
+
+def _purge_old_tasks():
+    now = time.time()
+    with _tasks_lock:
+        expired = [tid for tid, t in _tasks.items()
+                   if t.get("completed_at") and now - t["completed_at"] > TASK_TTL]
+        for tid in expired:
+            del _tasks[tid]
+
+
+# ---------------------------------------------------------------------------
 # Claude API – MCQ generation
 # ---------------------------------------------------------------------------
 
@@ -326,7 +345,7 @@ def index():
 
 @app.route("/api/generate", methods=["POST"])
 def api_generate():
-    """Generate MCQs from all loaded course materials."""
+    """Start MCQ generation – returns immediately with a task_id to poll."""
     data = request.get_json()
     num_questions = min(int(data.get("num_questions", 10)), 15)
     topic_focus = (data.get("topic_focus") or "").strip() or None
@@ -348,19 +367,14 @@ def api_generate():
         seen.add(qh)
         session["seen_quizzes"] = list(seen)[-20:]  # keep last 20
 
-        db.execute(
-            "INSERT INTO quiz_sessions (questions_json, total) VALUES (?, ?)",
-            (json.dumps(questions), len(questions)),
-        )
-        db.commit()
+        _save_quiz_session(questions)
         return jsonify({"questions": questions, "cost": round(cost, 4), "cached": True})
 
-    # No usable cache entry – generate a fresh quiz
-    # Sample random chunks from each document so questions can come from
-    # any part of the material.  Chunks are re-randomized every quiz.
+    # No usable cache entry – kick off generation in background thread
+    # Build the combined text now (while we have the DB rows)
     max_total = 80_000
     budget_per_doc = max_total // max(len(rows), 1)
-    chunk_size = 1500  # ~1-2 paragraphs per chunk
+    chunk_size = 1500
 
     parts = []
     for row in rows:
@@ -368,7 +382,6 @@ def api_generate():
         if len(doc_text) <= budget_per_doc:
             parts.append(f"--- {row['filename']} ---\n{doc_text}")
         else:
-            # Split into fixed-size chunks, sample enough to fill budget
             chunks = [doc_text[i:i + chunk_size]
                       for i in range(0, len(doc_text), chunk_size)]
             num_chunks = max(budget_per_doc // chunk_size, 1)
@@ -377,33 +390,78 @@ def api_generate():
             parts.append(f"--- {row['filename']} (sampled excerpts) ---\n{sampled_text}")
     combined_text = "\n\n".join(parts)
 
-    try:
-        questions, cost = generate_mcqs(combined_text, num_questions, topic_focus)
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}")
-        return jsonify({"error": "Failed to parse generated questions. Please try again."}), 500
-    except anthropic.APIError as e:
-        return jsonify({"error": f"AI service error: {e.message}"}), 502
-    except Exception as e:
-        print(f"Unexpected error: {type(e).__name__}: {e}")
-        return jsonify({"error": str(e)}), 500
+    task_id = uuid.uuid4().hex
+    with _tasks_lock:
+        _tasks[task_id] = {"status": "pending"}
 
-    # Cache the new quiz for other students
-    cache_put(num_questions, topic_focus, questions, cost)
+    def _run_generation():
+        try:
+            questions, cost = generate_mcqs(combined_text, num_questions, topic_focus)
+            cache_put(num_questions, topic_focus, questions, cost)
+            _save_quiz_session(questions)
+            with _tasks_lock:
+                _tasks[task_id] = {
+                    "status": "done",
+                    "questions": questions,
+                    "cost": round(cost, 4),
+                    "quiz_hash": _quiz_hash(questions),
+                    "completed_at": time.time(),
+                }
+        except json.JSONDecodeError as e:
+            print(f"JSON parse error: {e}")
+            with _tasks_lock:
+                _tasks[task_id] = {"status": "error", "error": "Failed to parse generated questions. Please try again.", "completed_at": time.time()}
+        except anthropic.APIError as e:
+            with _tasks_lock:
+                _tasks[task_id] = {"status": "error", "error": f"AI service error: {e.message}", "completed_at": time.time()}
+        except Exception as e:
+            print(f"Unexpected error: {type(e).__name__}: {e}")
+            with _tasks_lock:
+                _tasks[task_id] = {"status": "error", "error": str(e), "completed_at": time.time()}
 
-    # Track that this student saw this quiz
-    qh = _quiz_hash(questions)
-    seen.add(qh)
+    _purge_old_tasks()
+    threading.Thread(target=_run_generation, daemon=True).start()
+
+    return jsonify({"task_id": task_id})
+
+
+@app.route("/api/generate/status/<task_id>")
+def api_generate_status(task_id):
+    """Poll for generation result."""
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+
+    if not task:
+        return jsonify({"error": "Unknown task"}), 404
+
+    if task["status"] == "pending":
+        return jsonify({"status": "pending"})
+
+    if task["status"] == "error":
+        return jsonify({"status": "error", "error": task["error"]}), 500
+
+    # Done – track this quiz as seen by this student
+    seen = set(session.get("seen_quizzes", []))
+    seen.add(task["quiz_hash"])
     session["seen_quizzes"] = list(seen)[-20:]
 
-    # Save quiz session
+    return jsonify({
+        "status": "done",
+        "questions": task["questions"],
+        "cost": task["cost"],
+        "cached": False,
+    })
+
+
+def _save_quiz_session(questions):
+    """Save quiz to DB (works outside request context)."""
+    db = sqlite3.connect(str(DATABASE))
     db.execute(
         "INSERT INTO quiz_sessions (questions_json, total) VALUES (?, ?)",
         (json.dumps(questions), len(questions)),
     )
     db.commit()
-
-    return jsonify({"questions": questions, "cost": round(cost, 4), "cached": False})
+    db.close()
 
 
 # ---------------------------------------------------------------------------

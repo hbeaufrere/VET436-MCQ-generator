@@ -4,6 +4,19 @@ let currentIndex = 0;
 let userAnswers = {};
 let revealed = {};
 
+async function pollForResult(taskId) {
+    const maxAttempts = 120;  // up to ~4 minutes with 2s intervals
+    for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const resp = await fetch(`/api/generate/status/${taskId}`);
+        const data = await resp.json();
+        if (data.status === "done") return data;
+        if (data.status === "error") throw new Error(data.error || "Generation failed.");
+        // still pending – keep polling
+    }
+    throw new Error("Generation timed out. Please try again.");
+}
+
 function escapeHTML(str) {
     const div = document.createElement("div");
     div.textContent = str;
@@ -39,8 +52,22 @@ if (setupForm) {
                 throw new Error(data.error || "Generation failed.");
             }
 
-            questions = data.questions;
-            quizCost = data.cost;
+            // If response has questions directly (cache hit), use them
+            if (data.questions) {
+                questions = data.questions;
+                quizCost = data.cost;
+                currentIndex = 0;
+                userAnswers = {};
+                revealed = {};
+                startQuiz();
+                return;
+            }
+
+            // Otherwise poll for async generation result
+            const taskId = data.task_id;
+            const result = await pollForResult(taskId);
+            questions = result.questions;
+            quizCost = result.cost;
             currentIndex = 0;
             userAnswers = {};
             revealed = {};
