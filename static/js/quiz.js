@@ -90,9 +90,7 @@ function startQuiz() {
     // Show cost and disclaimer
     const infoDiv = document.getElementById("quizInfo");
     if (infoDiv) {
-        const costStr = quizCost < 0.01 ? "less than $0.01" : "$" + quizCost.toFixed(2);
         infoDiv.innerHTML =
-            `<em>FYI, cost of this MCQ session was ${costStr}</em>` +
             `<p class="disclaimer">AI-generated questions may be inaccurate. If you are unsure about the validity of an answer or confused, just email Dr. Beaufr\u00e8re at <a href="mailto:hbeaufrere@ucdavis.edu">hbeaufrere@ucdavis.edu</a></p>`;
         infoDiv.style.display = "block";
     }
